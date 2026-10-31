@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">Baixar Vídeo Drama TV</string>
+    <string name="tv_mode_web">Modo Web TV</string>
+    <string name="tv_mode_native">Extrator Nativo</string>
+    <string name="tv_mode_downloads">Meus Downloads</string>
+    <string name="btn_play">Assistir no Player</string>
+    <string name="btn_download">Baixar Vídeo</string>
+    <string name="btn_copy">Copiar Link</string>
+    <string name="video_detected_title">Vídeo Encontrado!</string>
+    <string name="video_detected_desc">Pressione OK no controle para reproduzir ou baixar este vídeo.</string>
+</resources>
