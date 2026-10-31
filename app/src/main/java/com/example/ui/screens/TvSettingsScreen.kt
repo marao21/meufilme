@@ -36,6 +36,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.AppConfig
 import com.example.model.AppSettings
 import com.example.ui.theme.TvAccentCyan
 import com.example.ui.theme.TvAccentPink
@@ -265,7 +266,7 @@ fun TvSettingsScreen(
                                 .clip(btnShape)
                                 .background(TvCardHover)
                                 .tvFocusable(shape = btnShape) {
-                                    onUpdateSettings(settings.copy(homeUrl = "https://baixar-video-drama-web-uy33.vercel.app/"))
+                                    onUpdateSettings(settings.copy(homeUrl = AppConfig.WEB_HOME_URL))
                                     Toast.makeText(context, "URL inicial restaurada para Vercel!", Toast.LENGTH_SHORT).show()
                                 }
                                 .padding(horizontal = 16.dp, vertical = 12.dp)
@@ -298,7 +299,7 @@ fun TvSettingsScreen(
                     Column {
                         Text("Baixar Vídeo Drama TV — Versão 1.0", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TvTextPrimary)
                         Text(
-                            "Construído especialmente para TV Box Android e Smart TVs. Conectado ao sistema https://baixar-video-drama-web-uy33.vercel.app/ com suporte a controle remoto D-Pad, sniffing nativo de streams e reprodutor com download.",
+                            "Construído especialmente para TV Box Android e Smart TVs. Conectado ao sistema ${AppConfig.WEB_HOME_URL} com suporte a controle remoto D-Pad, sniffing nativo de streams e reprodutor com download.",
                             fontSize = 12.sp,
                             color = TvTextSecondary
                         )

@@ -3,6 +3,7 @@ package com.example.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.AppConfig
 import com.example.data.DramaRepository
 import com.example.download.TvDownloadManager
 import com.example.model.AppSettings
@@ -37,7 +38,7 @@ class TvMainViewModel(application: Application) : AndroidViewModel(application) 
     val latestDetectedPrompt: StateFlow<VideoMedia?> = _latestDetectedPrompt.asStateFlow()
 
     // Web URL state
-    private val _currentWebUrl = MutableStateFlow("https://baixar-video-drama-web-uy33.vercel.app/")
+    private val _currentWebUrl = MutableStateFlow(AppConfig.WEB_HOME_URL)
     val currentWebUrl: StateFlow<String> = _currentWebUrl.asStateFlow()
 
     // Extrator Nativo state

@@ -43,7 +43,7 @@ class MainActivity : ComponentActivity() {
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
 
-    private val targetUrl = "https://baixar-video-drama-web-uy33.vercel.app/"
+    private val targetUrl = AppConfig.WEB_HOME_URL
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {

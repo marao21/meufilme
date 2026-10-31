@@ -1,5 +1,6 @@
 package com.example.data
 
+import com.example.AppConfig
 import com.example.model.DramaShortcut
 import com.example.model.VideoMedia
 import kotlinx.coroutines.Dispatchers
@@ -21,7 +22,7 @@ class DramaRepository {
     val popularShortcuts: List<DramaShortcut> = listOf(
         DramaShortcut(
             name = "Vercel Web App",
-            url = "https://baixar-video-drama-web-uy33.vercel.app/",
+            url = AppConfig.WEB_HOME_URL,
             category = "Sistema Oficial",
             description = "Navegador com captura de link MP4 e M3U8 para dramas",
             iconEmoji = "🌐"
@@ -73,7 +74,7 @@ class DramaRepository {
             // 1. First attempt: call Vercel api/probe
             try {
                 val encodedUrl = URLEncoder.encode(trimmed, "UTF-8")
-                val probeApiUrl = "https://baixar-video-drama-web-uy33.vercel.app/api/probe?url=$encodedUrl"
+                val probeApiUrl = "${AppConfig.WEB_BASE_URL}/api/probe?url=$encodedUrl"
                 val request = Request.Builder()
                     .url(probeApiUrl)
                     .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")

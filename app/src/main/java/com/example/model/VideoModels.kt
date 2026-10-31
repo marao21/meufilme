@@ -1,5 +1,6 @@
 package com.example.model
 
+import com.example.AppConfig
 enum class TvNavTab(val title: String) {
     WEB("Modo Web Vercel"),
     EXTRACTOR("Extrator Nativo"),
@@ -65,5 +66,5 @@ data class AppSettings(
     val minDurationMinutes: Int = 15,
     val showUnknownDuration: Boolean = true,
     val protectedMode: Boolean = true,
-    val homeUrl: String = "https://baixar-video-drama-web-uy33.vercel.app/"
+    val homeUrl: String = AppConfig.WEB_HOME_URL
 )

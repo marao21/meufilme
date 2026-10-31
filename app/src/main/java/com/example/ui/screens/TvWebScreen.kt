@@ -2,7 +2,10 @@ package com.example.ui.screens
 
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
+import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -66,6 +69,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.example.AppConfig
+import com.example.BuildConfig
 import com.example.model.VideoMedia
 import com.example.ui.theme.TvAccentCyan
 import com.example.ui.theme.TvCardBg
@@ -144,7 +149,7 @@ fun TvWebScreen(
                                 icon = Icons.Default.Home,
                                 label = "Início Vercel",
                                 onClick = {
-                                    val home = "https://baixar-video-drama-web-uy33.vercel.app/"
+                                    val home = AppConfig.WEB_HOME_URL
                                     inputUrl = home
                                     webViewInstance?.loadUrl(home)
                                 }
@@ -286,8 +291,19 @@ fun TvWebScreen(
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { ctx ->
-                        WebView(ctx).apply {
-                            layoutParams = ViewGroup.LayoutParams(
+                        // Container do WebView: o fullscreen do HTML5 entra aqui por cima,
+                        // senão o player que abre em tela cheia mostra superfície preta.
+                        val container = FrameLayout(ctx)
+                        var fullscreenView: View? = null
+                        var fullscreenCallback: WebChromeClient.CustomViewCallback? = null
+
+                        // Permite inspecionar a aba por chrome://inspect e ler o console real.
+                        if (BuildConfig.DEBUG) {
+                            WebView.setWebContentsDebuggingEnabled(true)
+                        }
+
+                        val webView = WebView(ctx).apply {
+                            layoutParams = FrameLayout.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT
                             )
@@ -305,8 +321,9 @@ fun TvWebScreen(
                                 allowFileAccess = true
                                 allowContentAccess = true
                                 mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                                // Modern Chrome TV user agent so players render high-definition HTML5 video
-                                userAgentString = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                                // User agent definido em um único lugar (AppConfig): alguns players
+                                // entregam caminhos de reprodução diferentes conforme o user agent.
+                                userAgentString = AppConfig.WEBVIEW_USER_AGENT
                             }
 
                             webViewClient = object : WebViewClient() {
@@ -370,14 +387,69 @@ fun TvWebScreen(
                                     super.onReceivedTitle(view, title)
                                     title?.let { pageTitle = it }
                                 }
+
+                                override fun onPermissionRequest(request: PermissionRequest?) {
+                                    // Players HLS pedem Encrypted Media Extensions; sem a concessão
+                                    // o WebView nega e o vídeo nunca começa (retângulo preto).
+                                    val req = request ?: return
+                                    val protectedMedia = req.resources.filter {
+                                        it == PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID
+                                    }
+                                    if (protectedMedia.isNotEmpty()) {
+                                        req.grant(protectedMedia.toTypedArray())
+                                    } else {
+                                        req.deny()
+                                    }
+                                }
+
+                                override fun onShowCustomView(
+                                    view: View?,
+                                    callback: CustomViewCallback?
+                                ) {
+                                    if (fullscreenView != null) {
+                                        callback?.onCustomViewHidden()
+                                        return
+                                    }
+                                    fullscreenView = view
+                                    fullscreenCallback = callback
+                                    this@apply.visibility = View.GONE
+                                    if (view != null) {
+                                        container.addView(
+                                            view,
+                                            FrameLayout.LayoutParams(
+                                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                                ViewGroup.LayoutParams.MATCH_PARENT
+                                            )
+                                        )
+                                    }
+                                }
+
+                                override fun onHideCustomView() {
+                                    val view = fullscreenView ?: return
+                                    container.removeView(view)
+                                    fullscreenView = null
+                                    this@apply.visibility = View.VISIBLE
+                                    fullscreenCallback?.onCustomViewHidden()
+                                    fullscreenCallback = null
+                                }
                             }
 
                             loadUrl(currentUrl)
-                            webViewInstance = this
                         }
+
+                        container.addView(
+                            webView,
+                            FrameLayout.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                        )
+                        webViewInstance = webView
+                        container
                     },
-                    update = { view ->
-                        if (view.url != currentUrl && currentUrl.isNotBlank()) {
+                    update = {
+                        val view = webViewInstance
+                        if (view != null && view.url != currentUrl && currentUrl.isNotBlank()) {
                             view.loadUrl(currentUrl)
                         }
                     }
