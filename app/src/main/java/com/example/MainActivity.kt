@@ -146,6 +146,19 @@ class MainActivity : ComponentActivity() {
 
         webView.requestFocus()
 
+        // Dica unica por abertura: dentro do video, os controles sao do
+        // navegador e o D-pad nao os alcanca. Sem este aviso, o cursor fica
+        // escondido e ninguem descobre que ele existe.
+        containerLayout.postDelayed({
+            if (!isFinishing) {
+                Toast.makeText(
+                    this,
+                    "No video, segure o botao central para ligar o cursor",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }, 2500)
+
         procurarAtualizacao()
     }
 
@@ -365,7 +378,13 @@ class MainActivity : ComponentActivity() {
         cursor.visibility = if (ligar) View.VISIBLE else View.GONE
         if (ligar) {
             cursor.centralizar()
-            Toast.makeText(this, "Cursor ligado: setas movem, centro clica", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                this,
+                "Cursor ligado: setas movem, centro clica, Voltar desliga",
+                Toast.LENGTH_LONG
+            ).show()
+        } else {
+            Toast.makeText(this, "Cursor desligado", Toast.LENGTH_SHORT).show()
         }
         passoDoCursor = 18f
     }
@@ -388,7 +407,13 @@ class MainActivity : ComponentActivity() {
             return super.dispatchKeyEvent(event)
         }
 
-        if (event.keyCode == KeyEvent.KEYCODE_MENU) {
+        // Muitos controles de TV Box nao tem a tecla Menu. O segurar do botao
+        // central existe em todos, e e o que liga e desliga o cursor.
+        val centro = event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+            event.keyCode == KeyEvent.KEYCODE_ENTER
+        if (event.keyCode == KeyEvent.KEYCODE_MENU ||
+            (centro && event.repeatCount == 1)
+        ) {
             alternarCursor(!cursorLigado)
             return true
         }
