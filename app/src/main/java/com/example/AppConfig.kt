@@ -1,8 +1,9 @@
 package com.example
 
 /**
- * Configuração central do app. A URL do sistema web e o user agent do WebView
- * ficam aqui para não haver cópias espalhadas pelo código.
+ * Configuração central do app. A URL do sistema web, o user agent do WebView e
+ * o endereço de atualização ficam aqui para não haver cópias espalhadas pelo
+ * código.
  */
 object AppConfig {
 
@@ -11,6 +12,20 @@ object AppConfig {
 
     /** Página inicial do sistema web. */
     const val WEB_HOME_URL = "$WEB_BASE_URL/"
+
+    /**
+     * Na TV não há mouse nem barra de rolagem: quem rola é o D-pad. O site tem
+     * um modo próprio para isso, ligado por este parâmetro. No celular ele fica
+     * de fora, porque lá o dedo rola a página normalmente.
+     */
+    fun homeUrl(isTv: Boolean): String = if (isTv) "${WEB_HOME_URL}?tv=1" else WEB_HOME_URL
+
+    /** Release do GitHub que sempre guarda o APK mais novo. */
+    const val RELEASE_API_URL =
+        "https://api.github.com/repos/marao21/meufilme/releases/tags/apk-latest"
+
+    /** Arquivo do APK dentro dessa release. */
+    const val APK_ASSET_NAME = "meufilme-debug.apk"
 
     /**
      * User agent de Chrome em desktop Linux. Alguns players entregam um caminho
