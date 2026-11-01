@@ -124,17 +124,27 @@ class MainActivity : ComponentActivity() {
         setupClients()
         setupDownloadHandling()
 
-        // Handle Back button for TV Box remote
+        // Voltar do controle e do aparelho.
+        //
+        // Antes isto mexia direto no histórico do WebView, que não sabe nada
+        // das telas do site: ele pulava entre marcas antigas e a tela não
+        // mudava — a sensação era de ficar preso. Agora perguntamos à página
+        // primeiro, e só seguimos o caminho do navegador quando ela diz que
+        // não tem nada para fechar.
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (customView != null) {
-                    // Exit fullscreen video
-                    hideCustomView()
-                } else if (webView.canGoBack()) {
-                    webView.goBack()
-                } else {
-                    isEnabled = false
-                    onBackPressedDispatcher.onBackPressed()
+                    hideCustomView() // sai da tela cheia do vídeo
+                    return
+                }
+                perguntarAoSite { aPaginaFechouAlgo ->
+                    if (aPaginaFechouAlgo) return@perguntarAoSite
+                    if (webView.canGoBack()) {
+                        webView.goBack()
+                    } else {
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                    }
                 }
             }
         })
@@ -395,6 +405,29 @@ class MainActivity : ComponentActivity() {
      * movem a seta na tela, o centro vira um toque naquele ponto e o Voltar
      * sai do modo cursor antes de sair da tela.
      */
+    /**
+     * Pergunta ao site se ele fechou alguma tela por conta própria.
+     *
+     * A resposta vem do `window.bvdVoltar()`, que o site expõe: true quando
+     * havia player, página de título ou painel aberto e ele fechou; false
+     * quando já estava no catálogo e não há o que desfazer.
+     *
+     * Numa versão antiga do site essa função não existe, e aí `avaliar`
+     * devolve "null" — tratamos como "não fechou nada", para o Voltar seguir
+     * funcionando como antes em vez de travar.
+     */
+    private fun perguntarAoSite(depois: (Boolean) -> Unit) {
+        try {
+            webView.evaluateJavascript(
+                "(function(){ try { return !!(window.bvdVoltar && window.bvdVoltar()); } catch (e) { return false; } })()"
+            ) { resposta ->
+                depois(resposta == "true")
+            }
+        } catch (e: Exception) {
+            depois(false)
+        }
+    }
+
     /** Endereços já entregues, para o mesmo link não chegar duas vezes. */
     private val linksJaVistos = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
