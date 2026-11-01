@@ -2,7 +2,9 @@ name: APK de debug
 
 on:
   push:
-    branches: [fix/webview-player-preto]
+    # A main tambem gera APK: assim o arquivo publicado na release acompanha o
+    # que esta valendo, sem depender de lembrar de rodar na mao.
+    branches: [main, fix/webview-player-preto, 'melhorias/**']
   pull_request:
   workflow_dispatch:
 

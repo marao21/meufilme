@@ -1,6 +1,10 @@
 package com.example
 
 import android.annotation.SuppressLint
+import android.app.AlertDialog
+import android.app.UiModeManager
+import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.app.Activity
 import android.app.DownloadManager
 import android.content.Context
@@ -32,6 +36,9 @@ import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.lifecycle.lifecycleScope
+import com.example.update.AppUpdater
+import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
 
@@ -43,7 +50,18 @@ class MainActivity : ComponentActivity() {
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
 
-    private val targetUrl = AppConfig.WEB_HOME_URL
+    /**
+     * Numa TV Box nao ha dedo nem mouse: quem rola a pagina e o D-pad, e o site
+     * tem um modo proprio para isso. No celular esse modo atrapalharia.
+     */
+    private val isTv: Boolean by lazy {
+        val modo = getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager
+        modo?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION ||
+            packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
+            !packageManager.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
+    }
+
+    private val targetUrl: String by lazy { AppConfig.homeUrl(isTv) }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -114,6 +132,28 @@ class MainActivity : ComponentActivity() {
         }
 
         webView.requestFocus()
+
+        procurarAtualizacao()
+    }
+
+    /**
+     * Ao abrir, pergunta se ha APK mais novo publicado. Havendo, oferece a
+     * troca; nao havendo — ou sem rede —, nada aparece. E o que faz a TV Box
+     * se atualizar sozinha, sem ninguem ter de ir ao GitHub pelo navegador.
+     */
+    private fun procurarAtualizacao() {
+        lifecycleScope.launch {
+            val nova = AppUpdater.procurarAtualizacao() ?: return@launch
+            if (isFinishing || isDestroyed) return@launch
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle("Tem versao nova do app")
+                .setMessage("Baixar e instalar agora? O filme que estiver aberto continua depois.")
+                .setPositiveButton("Atualizar") { _, _ ->
+                    AppUpdater.baixarEInstalar(this@MainActivity, nova.url)
+                }
+                .setNegativeButton("Agora nao", null)
+                .show()
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -134,7 +174,7 @@ class MainActivity : ComponentActivity() {
         settings.cacheMode = WebSettings.LOAD_DEFAULT
 
         // Standard desktop/modern Chrome TV User Agent so streaming sites don't serve restricted or degraded players
-        settings.userAgentString = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        settings.userAgentString = AppConfig.WEBVIEW_USER_AGENT
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
