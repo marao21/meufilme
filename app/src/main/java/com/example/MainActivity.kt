@@ -28,6 +28,7 @@ import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -221,6 +222,27 @@ class MainActivity : ComponentActivity() {
                 injectBlobDownloadInterception(view)
             }
 
+            /**
+             * Captura do link do servidor — o equivalente nativo da extensão.
+             *
+             * O endereço do arquivo de vídeo só nasce quando o player o pede,
+             * e ele é pedido de dentro de uma moldura de outro site. Nenhuma
+             * varredura nossa alcança isso: só quem vê a requisição passar.
+             * No navegador quem vê é a extensão; aqui é esta função, por onde
+             * passa cada pedido que a WebView faz.
+             *
+             * Devolve null de propósito: não interferimos no pedido, apenas
+             * anotamos o endereço de passagem.
+             */
+            override fun shouldInterceptRequest(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): WebResourceResponse? {
+                val url = request?.url?.toString()
+                if (url != null && pareceVideo(url)) entregarLinkAoSite(url)
+                return null
+            }
+
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val uri = request?.url ?: return false
                 val urlStr = uri.toString()
@@ -373,6 +395,44 @@ class MainActivity : ComponentActivity() {
      * movem a seta na tela, o centro vira um toque naquele ponto e o Voltar
      * sai do modo cursor antes de sair da tela.
      */
+    /** Endereços já entregues, para o mesmo link não chegar duas vezes. */
+    private val linksJaVistos = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+    /**
+     * É um arquivo de vídeo? Olhamos o caminho, não a query: a assinatura e a
+     * validade vêm depois do "?" e mudam a cada pedido. Os pedaços (.ts) ficam
+     * de fora — quem interessa é a lista que os costura.
+     */
+    private fun pareceVideo(url: String): Boolean {
+        val caminho = url.substringBefore("?").lowercase()
+        if (caminho.endsWith(".ts")) return false
+        return caminho.endsWith(".m3u8") ||
+            caminho.endsWith(".mp4") ||
+            caminho.endsWith(".mkv") ||
+            caminho.endsWith(".webm") ||
+            caminho.endsWith(".mpd")
+    }
+
+    /**
+     * Entrega o link à nossa página, na mesma forma que a extensão usa no
+     * computador. Assim tudo o que o site já faz com o link capturado — medir
+     * a duração, aplicar o mínimo de 15 minutos, oferecer o nosso player —
+     * vale igual aqui, sem repetir nada.
+     */
+    private fun entregarLinkAoSite(url: String) {
+        if (!linksJaVistos.add(url)) return
+        val ehHls = url.substringBefore("?").lowercase().endsWith(".m3u8")
+        val script =
+            "window.postMessage({ source: 'baixar-video-drama', video: { url: " +
+                org.json.JSONObject.quote(url) +
+                ", title: document.title || 'Link capturado no app', isHls: " +
+                ehHls +
+                " } }, location.origin);"
+        runOnUiThread {
+            if (!isFinishing) webView.evaluateJavascript(script, null)
+        }
+    }
+
     private fun alternarCursor(ligar: Boolean) {
         cursorLigado = ligar
         cursor.visibility = if (ligar) View.VISIBLE else View.GONE
