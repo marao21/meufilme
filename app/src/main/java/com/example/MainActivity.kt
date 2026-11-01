@@ -36,7 +36,9 @@ import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import android.view.MotionEvent
 import androidx.lifecycle.lifecycleScope
+import com.example.ui.CursorVirtual
 import com.example.update.AppUpdater
 import kotlinx.coroutines.launch
 import java.io.File
@@ -47,6 +49,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
     private lateinit var containerLayout: FrameLayout
     private lateinit var progressBar: ProgressBar
+    private lateinit var cursor: CursorVirtual
+    private var cursorLigado = false
+    private var passoDoCursor = 18f
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
 
@@ -102,8 +107,16 @@ class MainActivity : ComponentActivity() {
             visibility = View.VISIBLE
         }
 
+        cursor = CursorVirtual(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+
         containerLayout.addView(webView)
         containerLayout.addView(progressBar)
+        containerLayout.addView(cursor)
         setContentView(containerLayout)
 
         configureWebViewSettings()
@@ -331,6 +344,77 @@ class MainActivity : ComponentActivity() {
             })();
         """.trimIndent()
         view?.evaluateJavascript(script, null)
+    }
+
+    /**
+     * Cursor de controle remoto.
+     *
+     * Dentro do player de video nao ha botao que o D-pad alcance: o play, a
+     * barra de tempo e a tela cheia sao desenhados pelo site e so respondem a
+     * toque. Da pagina nao da para mandar um clique para la, porque o player
+     * vem de outro endereco e o navegador proibe. Aqui no app o caminho e
+     * outro: o toque e despachado pelo Android para dentro da WebView, e
+     * evento nativo atravessa essa barreira.
+     *
+     * Liga e desliga no botao Menu do controle. Com ele ligado, as setas
+     * movem a seta na tela, o centro vira um toque naquele ponto e o Voltar
+     * sai do modo cursor antes de sair da tela.
+     */
+    private fun alternarCursor(ligar: Boolean) {
+        cursorLigado = ligar
+        cursor.visibility = if (ligar) View.VISIBLE else View.GONE
+        if (ligar) {
+            cursor.centralizar()
+            Toast.makeText(this, "Cursor ligado: setas movem, centro clica", Toast.LENGTH_SHORT).show()
+        }
+        passoDoCursor = 18f
+    }
+
+    /** Despacha um toque de verdade na posicao da seta. */
+    private fun tocarOndeEstaOCursor() {
+        val agora = android.os.SystemClock.uptimeMillis()
+        val x = cursor.cursorX
+        val y = cursor.cursorY
+        listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP).forEach { acao ->
+            val evento = MotionEvent.obtain(agora, agora + if (acao == MotionEvent.ACTION_UP) 60 else 0, acao, x, y, 0)
+            webView.dispatchTouchEvent(evento)
+            evento.recycle()
+        }
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action != KeyEvent.ACTION_DOWN) {
+            if (event.action == KeyEvent.ACTION_UP) passoDoCursor = 18f
+            return super.dispatchKeyEvent(event)
+        }
+
+        if (event.keyCode == KeyEvent.KEYCODE_MENU) {
+            alternarCursor(!cursorLigado)
+            return true
+        }
+
+        if (!cursorLigado) return super.dispatchKeyEvent(event)
+
+        when (event.keyCode) {
+            KeyEvent.KEYCODE_DPAD_LEFT -> cursor.mover(-passoDoCursor, 0f)
+            KeyEvent.KEYCODE_DPAD_RIGHT -> cursor.mover(passoDoCursor, 0f)
+            KeyEvent.KEYCODE_DPAD_UP -> cursor.mover(0f, -passoDoCursor)
+            KeyEvent.KEYCODE_DPAD_DOWN -> cursor.mover(0f, passoDoCursor)
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                tocarOndeEstaOCursor()
+                return true
+            }
+            KeyEvent.KEYCODE_BACK -> {
+                alternarCursor(false)
+                return true
+            }
+            else -> return super.dispatchKeyEvent(event)
+        }
+
+        // Segurando a seta, a seta anda cada vez mais rapido: atravessar a
+        // tela de 18 em 18 pixels seria uma viagem.
+        passoDoCursor = (passoDoCursor * 1.18f).coerceAtMost(90f)
+        return true
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
