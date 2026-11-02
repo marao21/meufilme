@@ -1,6 +1,10 @@
 package com.example
 
 import android.annotation.SuppressLint
+import android.app.AlertDialog
+import android.app.UiModeManager
+import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.app.Activity
 import android.app.DownloadManager
 import android.content.Context
@@ -24,6 +28,7 @@ import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -32,6 +37,11 @@ import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import android.view.MotionEvent
+import androidx.lifecycle.lifecycleScope
+import com.example.ui.CursorVirtual
+import com.example.update.AppUpdater
+import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
 
@@ -40,10 +50,24 @@ class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
     private lateinit var containerLayout: FrameLayout
     private lateinit var progressBar: ProgressBar
+    private lateinit var cursor: CursorVirtual
+    private var cursorLigado = false
+    private var passoDoCursor = 18f
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
 
-    private val targetUrl = AppConfig.WEB_HOME_URL
+    /**
+     * Numa TV Box nao ha dedo nem mouse: quem rola a pagina e o D-pad, e o site
+     * tem um modo proprio para isso. No celular esse modo atrapalharia.
+     */
+    private val isTv: Boolean by lazy {
+        val modo = getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager
+        modo?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION ||
+            packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
+            !packageManager.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
+    }
+
+    private val targetUrl: String by lazy { AppConfig.homeUrl(isTv) }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -84,25 +108,43 @@ class MainActivity : ComponentActivity() {
             visibility = View.VISIBLE
         }
 
+        cursor = CursorVirtual(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+
         containerLayout.addView(webView)
         containerLayout.addView(progressBar)
+        containerLayout.addView(cursor)
         setContentView(containerLayout)
 
         configureWebViewSettings()
         setupClients()
         setupDownloadHandling()
 
-        // Handle Back button for TV Box remote
+        // Voltar do controle e do aparelho.
+        //
+        // Antes isto mexia direto no histórico do WebView, que não sabe nada
+        // das telas do site: ele pulava entre marcas antigas e a tela não
+        // mudava — a sensação era de ficar preso. Agora perguntamos à página
+        // primeiro, e só seguimos o caminho do navegador quando ela diz que
+        // não tem nada para fechar.
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (customView != null) {
-                    // Exit fullscreen video
-                    hideCustomView()
-                } else if (webView.canGoBack()) {
-                    webView.goBack()
-                } else {
-                    isEnabled = false
-                    onBackPressedDispatcher.onBackPressed()
+                    hideCustomView() // sai da tela cheia do vídeo
+                    return
+                }
+                perguntarAoSite { aPaginaFechouAlgo ->
+                    if (aPaginaFechouAlgo) return@perguntarAoSite
+                    if (webView.canGoBack()) {
+                        webView.goBack()
+                    } else {
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                    }
                 }
             }
         })
@@ -114,6 +156,41 @@ class MainActivity : ComponentActivity() {
         }
 
         webView.requestFocus()
+
+        // Dica unica por abertura: dentro do video, os controles sao do
+        // navegador e o D-pad nao os alcanca. Sem este aviso, o cursor fica
+        // escondido e ninguem descobre que ele existe.
+        containerLayout.postDelayed({
+            if (!isFinishing) {
+                Toast.makeText(
+                    this,
+                    "No video, segure o botao central para ligar o cursor",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }, 2500)
+
+        procurarAtualizacao()
+    }
+
+    /**
+     * Ao abrir, pergunta se ha APK mais novo publicado. Havendo, oferece a
+     * troca; nao havendo — ou sem rede —, nada aparece. E o que faz a TV Box
+     * se atualizar sozinha, sem ninguem ter de ir ao GitHub pelo navegador.
+     */
+    private fun procurarAtualizacao() {
+        lifecycleScope.launch {
+            val nova = AppUpdater.procurarAtualizacao() ?: return@launch
+            if (isFinishing || isDestroyed) return@launch
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle("Tem versao nova do app")
+                .setMessage("Baixar e instalar agora? O filme que estiver aberto continua depois.")
+                .setPositiveButton("Atualizar") { _, _ ->
+                    AppUpdater.baixarEInstalar(this@MainActivity, nova.url)
+                }
+                .setNegativeButton("Agora nao", null)
+                .show()
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -134,7 +211,7 @@ class MainActivity : ComponentActivity() {
         settings.cacheMode = WebSettings.LOAD_DEFAULT
 
         // Standard desktop/modern Chrome TV User Agent so streaming sites don't serve restricted or degraded players
-        settings.userAgentString = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        settings.userAgentString = AppConfig.WEBVIEW_USER_AGENT
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
@@ -153,6 +230,27 @@ class MainActivity : ComponentActivity() {
 
                 // Inject blob download bridge so site's "Baixar HLS completo" works natively on TV
                 injectBlobDownloadInterception(view)
+            }
+
+            /**
+             * Captura do link do servidor — o equivalente nativo da extensão.
+             *
+             * O endereço do arquivo de vídeo só nasce quando o player o pede,
+             * e ele é pedido de dentro de uma moldura de outro site. Nenhuma
+             * varredura nossa alcança isso: só quem vê a requisição passar.
+             * No navegador quem vê é a extensão; aqui é esta função, por onde
+             * passa cada pedido que a WebView faz.
+             *
+             * Devolve null de propósito: não interferimos no pedido, apenas
+             * anotamos o endereço de passagem.
+             */
+            override fun shouldInterceptRequest(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): WebResourceResponse? {
+                val url = request?.url?.toString()
+                if (url != null && pareceVideo(url)) entregarLinkAoSite(url)
+                return null
             }
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
@@ -291,6 +389,150 @@ class MainActivity : ComponentActivity() {
             })();
         """.trimIndent()
         view?.evaluateJavascript(script, null)
+    }
+
+    /**
+     * Cursor de controle remoto.
+     *
+     * Dentro do player de video nao ha botao que o D-pad alcance: o play, a
+     * barra de tempo e a tela cheia sao desenhados pelo site e so respondem a
+     * toque. Da pagina nao da para mandar um clique para la, porque o player
+     * vem de outro endereco e o navegador proibe. Aqui no app o caminho e
+     * outro: o toque e despachado pelo Android para dentro da WebView, e
+     * evento nativo atravessa essa barreira.
+     *
+     * Liga e desliga no botao Menu do controle. Com ele ligado, as setas
+     * movem a seta na tela, o centro vira um toque naquele ponto e o Voltar
+     * sai do modo cursor antes de sair da tela.
+     */
+    /**
+     * Pergunta ao site se ele fechou alguma tela por conta própria.
+     *
+     * A resposta vem do `window.bvdVoltar()`, que o site expõe: true quando
+     * havia player, página de título ou painel aberto e ele fechou; false
+     * quando já estava no catálogo e não há o que desfazer.
+     *
+     * Numa versão antiga do site essa função não existe, e aí `avaliar`
+     * devolve "null" — tratamos como "não fechou nada", para o Voltar seguir
+     * funcionando como antes em vez de travar.
+     */
+    private fun perguntarAoSite(depois: (Boolean) -> Unit) {
+        try {
+            webView.evaluateJavascript(
+                "(function(){ try { return !!(window.bvdVoltar && window.bvdVoltar()); } catch (e) { return false; } })()"
+            ) { resposta ->
+                depois(resposta == "true")
+            }
+        } catch (e: Exception) {
+            depois(false)
+        }
+    }
+
+    /** Endereços já entregues, para o mesmo link não chegar duas vezes. */
+    private val linksJaVistos = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+    /**
+     * É um arquivo de vídeo? Olhamos o caminho, não a query: a assinatura e a
+     * validade vêm depois do "?" e mudam a cada pedido. Os pedaços (.ts) ficam
+     * de fora — quem interessa é a lista que os costura.
+     */
+    private fun pareceVideo(url: String): Boolean {
+        val caminho = url.substringBefore("?").lowercase()
+        if (caminho.endsWith(".ts")) return false
+        return caminho.endsWith(".m3u8") ||
+            caminho.endsWith(".mp4") ||
+            caminho.endsWith(".mkv") ||
+            caminho.endsWith(".webm") ||
+            caminho.endsWith(".mpd")
+    }
+
+    /**
+     * Entrega o link à nossa página, na mesma forma que a extensão usa no
+     * computador. Assim tudo o que o site já faz com o link capturado — medir
+     * a duração, aplicar o mínimo de 15 minutos, oferecer o nosso player —
+     * vale igual aqui, sem repetir nada.
+     */
+    private fun entregarLinkAoSite(url: String) {
+        if (!linksJaVistos.add(url)) return
+        val ehHls = url.substringBefore("?").lowercase().endsWith(".m3u8")
+        val script =
+            "window.postMessage({ source: 'baixar-video-drama', video: { url: " +
+                org.json.JSONObject.quote(url) +
+                ", title: document.title || 'Link capturado no app', isHls: " +
+                ehHls +
+                " } }, location.origin);"
+        runOnUiThread {
+            if (!isFinishing) webView.evaluateJavascript(script, null)
+        }
+    }
+
+    private fun alternarCursor(ligar: Boolean) {
+        cursorLigado = ligar
+        cursor.visibility = if (ligar) View.VISIBLE else View.GONE
+        if (ligar) {
+            cursor.centralizar()
+            Toast.makeText(
+                this,
+                "Cursor ligado: setas movem, centro clica, Voltar desliga",
+                Toast.LENGTH_LONG
+            ).show()
+        } else {
+            Toast.makeText(this, "Cursor desligado", Toast.LENGTH_SHORT).show()
+        }
+        passoDoCursor = 18f
+    }
+
+    /** Despacha um toque de verdade na posicao da seta. */
+    private fun tocarOndeEstaOCursor() {
+        val agora = android.os.SystemClock.uptimeMillis()
+        val x = cursor.cursorX
+        val y = cursor.cursorY
+        listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP).forEach { acao ->
+            val evento = MotionEvent.obtain(agora, agora + if (acao == MotionEvent.ACTION_UP) 60 else 0, acao, x, y, 0)
+            webView.dispatchTouchEvent(evento)
+            evento.recycle()
+        }
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action != KeyEvent.ACTION_DOWN) {
+            if (event.action == KeyEvent.ACTION_UP) passoDoCursor = 18f
+            return super.dispatchKeyEvent(event)
+        }
+
+        // Muitos controles de TV Box nao tem a tecla Menu. O segurar do botao
+        // central existe em todos, e e o que liga e desliga o cursor.
+        val centro = event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+            event.keyCode == KeyEvent.KEYCODE_ENTER
+        if (event.keyCode == KeyEvent.KEYCODE_MENU ||
+            (centro && event.repeatCount == 1)
+        ) {
+            alternarCursor(!cursorLigado)
+            return true
+        }
+
+        if (!cursorLigado) return super.dispatchKeyEvent(event)
+
+        when (event.keyCode) {
+            KeyEvent.KEYCODE_DPAD_LEFT -> cursor.mover(-passoDoCursor, 0f)
+            KeyEvent.KEYCODE_DPAD_RIGHT -> cursor.mover(passoDoCursor, 0f)
+            KeyEvent.KEYCODE_DPAD_UP -> cursor.mover(0f, -passoDoCursor)
+            KeyEvent.KEYCODE_DPAD_DOWN -> cursor.mover(0f, passoDoCursor)
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                tocarOndeEstaOCursor()
+                return true
+            }
+            KeyEvent.KEYCODE_BACK -> {
+                alternarCursor(false)
+                return true
+            }
+            else -> return super.dispatchKeyEvent(event)
+        }
+
+        // Segurando a seta, a seta anda cada vez mais rapido: atravessar a
+        // tela de 18 em 18 pixels seria uma viagem.
+        passoDoCursor = (passoDoCursor * 1.18f).coerceAtMost(90f)
+        return true
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
