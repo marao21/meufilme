@@ -8,7 +8,10 @@ package com.example
 object AppConfig {
 
     /** Base do sistema web (sem barra no final). */
-    const val WEB_BASE_URL = "https://baixar-video-drama-web-uy33.vercel.app"
+    // O sistema mudou de endereço: o -uy33 é um projeto antigo, que ficou para
+    // trás e serve uma versão de dias atrás. O aplicativo abria esse, e por
+    // isso não via nada do que foi feito depois.
+    const val WEB_BASE_URL = "https://filmemeu.vercel.app"
 
     /** Página inicial do sistema web. */
     const val WEB_HOME_URL = "$WEB_BASE_URL/"
